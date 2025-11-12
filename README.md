@@ -19,6 +19,7 @@
   - 会計ごとの明細 (`SalesLog` シート)
   - 売上合計金額/総数と会計件数 (`Summary` シート)
   - 2 時間ごとの売上個数集計 (`ByTimeSlot` シート)
+- **Google Sheets 連携 (任意)**: GitHub Pages 上で同じスプレッドシートに会計ログを集約できるよう、Google Apps Script Web API への送信機能を備えています。
 - **手動エクスポート**: 管理画面の「手動でエクスポート」から、任意のタイミングで最新の売上ファイルを再取得できます。
 
 ## データの保持について
@@ -29,3 +30,47 @@
 ## カスタマイズ
 
 アプリはプレーンな HTML/CSS/JavaScript で構成されているため、好みに応じて `styles.css` や `app.js` を編集するだけで見た目や挙動を調整できます。
+
+## Google Sheets 連携手順
+
+1. `config.sample.js` を `config.js` にコピーし、リポジトリには含めないでください (`config.js` は `.gitignore` 済み)。
+2. `config.js` に以下を設定します。
+   - `sheetsEndpoint`: Google Apps Script を Web アプリとして公開した URL。
+   - `sheetsApiKey`: 任意の共有キー。Apps Script 側で同じ値かを確認して簡易認証に使います。
+3. Google スプレッドシートを作成し、ツール > スクリプトエディタから Apps Script を開いて、下記サンプルを貼り付けます。
+
+```javascript
+const SHEET_ID = "ここにスプレッドシートID";
+const API_KEY = "config.js に設定したキー";
+
+function doPost(e) {
+  const body = JSON.parse(e.postData.contents);
+  if (body.apiKey !== API_KEY) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ status: "error", message: "unauthorized" })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  const sale = body.payload;
+  const sheet =
+    SpreadsheetApp.openById(SHEET_ID).getSheetByName("SalesLog") ||
+    SpreadsheetApp.openById(SHEET_ID).insertSheet("SalesLog");
+
+  sheet.appendRow([
+    new Date(sale.timestamp),
+    sale.id,
+    sale.totalQuantity,
+    sale.total,
+    sale.discountLabel,
+    sale.discountAmount,
+    sale.items.map((item) => `${item.name}×${item.quantity}`).join(", "),
+  ]);
+
+  return ContentService.createTextOutput(
+    JSON.stringify({ status: "ok" })
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+4. 「デプロイ > 新しいデプロイ > 種類: ウェブアプリ」から「アクセスできるユーザー: 全員」に設定して公開すると URL が発行されます。
+5. GitHub Pages で公開したアプリをリロードすると、会計時に設定したスプレッドシートへもデータが送られます。ネットワークや API でエラーが出た場合は画面下部にエラーメッセージが表示されます。
