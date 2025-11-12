@@ -1,18 +1,4 @@
 (() => {
-  const DEFAULT_CONFIG = {
-    sheetsEndpoint:
-      "https://script.google.com/macros/s/AKfycbwS6cF3JKJK35fcgajPXpjABEIvA1t9Fv6FfzdVC4naJLdMZyoiCmr35kNI_FkV_Uhc/exec",
-    sheetsApiKey: "keio-rover-mitasai-chasher",
-    sheetsTimeoutMs: 7000,
-  };
-
-  const USER_CONFIG =
-    typeof window !== "undefined" && window.MITASAI_CONFIG
-      ? window.MITASAI_CONFIG
-      : {};
-
-  const CONFIG = { ...DEFAULT_CONFIG, ...USER_CONFIG };
-
   const STORAGE_KEYS = {
     PRODUCTS: "mitasai_products",
     DISCOUNTS: "mitasai_discounts",
@@ -51,7 +37,9 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
 
   const normalizeProduct = (product) => {
-    const basePrice = Math.round(product.basePrice ?? product.price ?? 0);
+    const basePrice = Math.round(
+      product.basePrice ?? product.price ?? 0
+    );
     const price = Math.round(product.price ?? basePrice);
     return { ...product, basePrice, price };
   };
@@ -86,9 +74,7 @@
 
   function attachEventListeners() {
     els.tabButtons.forEach((btn) => {
-      btn.addEventListener("click", () =>
-        switchScreen(btn.dataset.target, btn)
-      );
+      btn.addEventListener("click", () => switchScreen(btn.dataset.target, btn));
     });
 
     els.productList.addEventListener("click", (event) => {
@@ -210,14 +196,10 @@
   }
 
   function loadState() {
-    state.products = loadFromStorage(
-      STORAGE_KEYS.PRODUCTS,
-      DEFAULT_PRODUCTS
-    ).map(normalizeProduct);
-    state.discounts = loadFromStorage(
-      STORAGE_KEYS.DISCOUNTS,
-      DEFAULT_DISCOUNTS
+    state.products = loadFromStorage(STORAGE_KEYS.PRODUCTS, DEFAULT_PRODUCTS).map(
+      normalizeProduct
     );
+    state.discounts = loadFromStorage(STORAGE_KEYS.DISCOUNTS, DEFAULT_DISCOUNTS);
     state.sales = loadFromStorage(STORAGE_KEYS.SALES, []);
     ensureDefaultDiscount();
     state.selectedDiscountId = state.discounts[0]?.id ?? null;
@@ -225,11 +207,7 @@
 
   function ensureDefaultDiscount() {
     if (!state.discounts.some((d) => d.rate === 0)) {
-      state.discounts.unshift({
-        id: "discount-none",
-        label: "割引なし",
-        rate: 0,
-      });
+      state.discounts.unshift({ id: "discount-none", label: "割引なし", rate: 0 });
       persistDiscounts();
     }
   }
@@ -249,10 +227,7 @@
   }
 
   function persistDiscounts() {
-    localStorage.setItem(
-      STORAGE_KEYS.DISCOUNTS,
-      JSON.stringify(state.discounts)
-    );
+    localStorage.setItem(STORAGE_KEYS.DISCOUNTS, JSON.stringify(state.discounts));
   }
 
   function persistSales() {
@@ -282,9 +257,7 @@
         </p>
         ${
           onSale
-            ? `<p class="price-note">標準: ${currency.format(
-                product.basePrice
-              )}</p>`
+            ? `<p class="price-note">標準: ${currency.format(product.basePrice)}</p>`
             : ""
         }
         <div class="qty-control">
@@ -318,9 +291,7 @@
 
     const totals = computeTotals(items);
     els.subtotal.textContent = currency.format(totals.subtotal);
-    els.discountAmount.textContent = `−${currency.format(
-      totals.discountAmount
-    )}`;
+    els.discountAmount.textContent = `−${currency.format(totals.discountAmount)}`;
     els.grandTotal.textContent = currency.format(totals.total);
   }
 
@@ -359,7 +330,11 @@
             <h3>${product.name}</h3>
             <small>ID: ${product.id}</small><br />
             <small>標準価格: ${currency.format(product.basePrice)}</small>
-            ${onSale ? '<small class="sale-flag">※100円引き適用中</small>' : ""}
+            ${
+              onSale
+                ? '<small class="sale-flag">※100円引き適用中</small>'
+                : ""
+            }
           </div>
           <input
             type="number"
@@ -367,24 +342,18 @@
             data-price-id="${product.id}"
             value="${product.price}"
           />
-          <button class="ghost" data-product-action="save" data-id="${
-            product.id
-          }">
+          <button class="ghost" data-product-action="save" data-id="${product.id}">
             価格更新
           </button>
-          <button class="ghost" data-product-action="sale" data-id="${
-            product.id
-          }">
+          <button class="ghost" data-product-action="sale" data-id="${product.id}">
             100円引き
           </button>
-          <button class="ghost" data-product-action="reset" data-id="${
-            product.id
-          }" ${product.price === product.basePrice ? "disabled" : ""}>
+          <button class="ghost" data-product-action="reset" data-id="${product.id}" ${
+            product.price === product.basePrice ? "disabled" : ""
+          }>
             標準に戻す
           </button>
-          <button class="danger" data-product-action="delete" data-id="${
-            product.id
-          }">
+          <button class="danger" data-product-action="delete" data-id="${product.id}">
             削除
           </button>
         </div>
@@ -414,9 +383,7 @@
             data-rate-id="${discount.id}"
             value="${discount.rate}"
           />
-          <button class="ghost" data-discount-action="save" data-id="${
-            discount.id
-          }">
+          <button class="ghost" data-discount-action="save" data-id="${discount.id}">
             割引率更新
           </button>
           ${
@@ -505,11 +472,7 @@
     state.cart = {};
     renderProducts();
     renderCartSummary();
-    setStatus(
-      "会計データを保存しました。管理画面からエクスポートできます。",
-      "success"
-    );
-    syncSaleToSheets(saleRecord);
+    setStatus("会計データを保存しました。管理画面からエクスポートできます。", "success");
   }
 
   function exportSalesToExcel() {
@@ -528,7 +491,9 @@
       state.sales.map((sale, index) => ({
         No: index + 1,
         日時: new Date(sale.timestamp).toLocaleString("ja-JP"),
-        商品内訳: sale.items.map((i) => `${i.name}×${i.quantity}`).join(", "),
+        商品内訳: sale.items
+          .map((i) => `${i.name}×${i.quantity}`)
+          .join(", "),
         小計: sale.subtotal,
         割引: `${sale.discountLabel} (-${sale.discountAmount})`,
         合計: sale.total,
@@ -567,9 +532,10 @@
     XLSX.utils.book_append_sheet(workbook, slotSheet, "ByTimeSlot");
 
     const stamp = new Date();
-    const fileName = `mitasai_sales_${
-      stamp.toISOString().replace(/[:]/g, "-").split(".")[0]
-    }.xlsx`;
+    const fileName = `mitasai_sales_${stamp
+      .toISOString()
+      .replace(/[:]/g, "-")
+      .split(".")[0]}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   }
 
@@ -684,59 +650,6 @@
     renderAdminDiscounts();
     renderCartSummary();
     setStatus(`割引「${discount.label}」を削除しました。`, "success");
-  }
-
-  async function syncSaleToSheets(saleRecord) {
-    const endpoint = CONFIG.sheetsEndpoint?.trim();
-    if (!endpoint) return;
-    const controller = new AbortController();
-    const timeoutMs = Number(CONFIG.sheetsTimeoutMs) || 7000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          apiKey: CONFIG.sheetsApiKey,
-          payload: shapeSaleForSheets(saleRecord),
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        throw new Error(`Sheets responded with ${response.status}`);
-      }
-      setStatus("Google Sheets にも記録しました。", "success");
-    } catch (error) {
-      clearTimeout(timeoutId);
-      console.error("Failed to send sale to Google Sheets", error);
-      setStatus(
-        "Google Sheets への送信に失敗しました。ネットワークや設定を確認してください。",
-        "error"
-      );
-    }
-  }
-
-  function shapeSaleForSheets(sale) {
-    return {
-      id: sale.id,
-      timestamp: sale.timestamp,
-      subtotal: sale.subtotal,
-      discountLabel: sale.discountLabel,
-      discountRate: sale.discountRate,
-      discountAmount: sale.discountAmount,
-      total: sale.total,
-      totalQuantity: sale.totalQuantity,
-      items: sale.items.map((item) => ({
-        productId: item.productId,
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        lineTotal: item.lineTotal,
-      })),
-    };
   }
 
   function setStatus(message, type = "info") {

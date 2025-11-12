@@ -1,90 +1,31 @@
 # MITASAI CASHER
 
-学園祭の模擬店向けに作成した、シンプルで見やすい Web レジアプリです。ブラウザだけで動作し、商品管理から会計・Excel への売上出力、さらに Google Sheets への共有ログまで対応できます。
+学園祭の模擬店向けに、シンプルで使いやすいレジ Web アプリを用意しました。ブラウザだけで動作し、商品管理から会計・売上の Excel エクスポートまで完結します。
 
 ## 使い方
 
-1. `index.html` をブラウザ (Chrome / Edge 推奨) で開くとメイン画面が表示されます。
-2. 商品カードの `＋/−` ボタンで数量を調整し、割引を選択して `会計` を押します。会計情報はブラウザに保存され、必要に応じて Excel へエクスポートできます。
-3. 管理画面では商品の追加・価格変更・割引設定、100 円引きの瞬時切り替えが可能です。
-4. 「手動でエクスポート」ボタンを押すと、すべての会計履歴を含む Excel ファイル (`.xlsx`) がダウンロードされます。
+1. `index.html` をブラウザ (Chrome / Edge 推奨) で開くと、メイン画面が表示されます。
+2. 商品カードの `＋/−` ボタンで数量を調整し、割引を選択して `会計` を押すと、その会計情報がブラウザに保存されます。
+3. 売上 Excel が必要になったタイミングで、管理画面の「手動でエクスポート」から全会計データをまとめてダウンロードできます。
 
-## 機能
+## 機能概要
 
-- **直感的な UI**: 商品一覧と注文サマリーを並べ、割引や合計金額がひと目で分かります。
-- **管理画面**: 商品追加 / 価格更新 / 削除、割引の CRUD、100 円引き・標準価格のワンクリック切り替えに対応。
-- **売上エクスポート**: Excel には「SalesLog」「Summary」「ByTimeSlot」の 3 シートを収録し、会計明細と集計を自動生成します。
-- **Google Sheets 連携**: 設定済みの Web API に会計データを送信し、複数端末から同じスプレッドシートへ記録できます。
+- **見やすい UI**: 商品一覧と注文サマリーを並べて表示し、合計金額や割引がひと目で分かります。
+- **管理画面**: 商品の追加・価格変更・削除、割引率の追加/変更/削除をブラウザ上で完結できます。フレーバーごとの標準価格は以下の通りで初期登録されています。
+  - 500 円: プレーン（塩）
+  - 600 円: マヨネーズ / 明太子マヨ / ブラックペッパー / 海苔塩 / 醤油バター
+- **100 円引き調整**: 売れ行きに合わせ、管理画面からワンクリックで各フレーバーを 100 円引きにし、ボタン一つで元の価格に戻せます。
+- **売上 Excel**: 会計ボタンでデータを蓄積し、必要なときに以下を含むファイルを手動エクスポートできます。
+  - 会計ごとの明細 (`SalesLog` シート)
+  - 売上合計金額/総数と会計件数 (`Summary` シート)
+  - 2 時間ごとの売上個数集計 (`ByTimeSlot` シート)
+- **手動エクスポート**: 管理画面の「手動でエクスポート」から、任意のタイミングで最新の売上ファイルを再取得できます。
 
-## データ保持
+## データの保持について
 
-- 商品・割引・会計履歴はブラウザのローカルストレージに保存されます。
-- 端末やブラウザを変えると共有されないため、共用端末では同じブラウザを使い続けてください。
+- 商品・割引・売上履歴は、ブラウザのローカルストレージに保存されます。
+- ブラウザを変更/シークレットモードを使用するとデータは共有されないため、本番利用の端末を固定してください。
 
 ## カスタマイズ
 
-HTML/CSS/JavaScript だけで構成されているため、`index.html` / `styles.css` / `app.js` を編集することで自由に見た目や挙動を変更できます。
-
-## Google Sheets 連携手順
-
-1. `config.sample.js` を `config.js` にコピーし、**リポジトリに含めた状態**で運用します。  
-   ```bash
-   cp config.sample.js config.js
-   ```
-2. `config.js` を編集し、以下の値を設定します。
-   - `sheetsEndpoint`: Google Apps Script などで公開した Web API の URL (例: `https://script.google.com/macros/s/XXXXX/exec`)
-   - `sheetsApiKey`: API 側で照合する共有キー
-   - `sheetsTimeoutMs`: フロントエンドからの送信タイムアウト (任意)
-3. Google スプレッドシートを用意し、ツール > スクリプトエディタで Apps Script を作成します。以下は最小構成の例です。
-
-```javascript
-const SHEET_ID = "ここにスプレッドシートID";
-const API_KEY = "config.js と同じキー";
-
-function doGet(e) {
-  return buildCorsResponse({ status: "ok" });
-}
-
-function doPost(e) {
-  const body = JSON.parse(e.postData.contents || "{}");
-  if (body.apiKey !== API_KEY) {
-    return buildCorsResponse({ status: "error", message: "unauthorized" }, 403);
-  }
-
-  const sale = body.payload;
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sheet = ss.getSheetByName("SalesLog") || ss.insertSheet("SalesLog");
-  sheet.appendRow([
-    new Date(sale.timestamp),
-    sale.id,
-    sale.totalQuantity,
-    sale.total,
-    sale.discountLabel,
-    sale.discountAmount,
-    sale.items.map((item) => `${item.name}×${item.quantity}`).join(", "),
-  ]);
-
-  return buildCorsResponse({ status: "ok" });
-}
-
-function buildCorsResponse(payload, statusCode = 200) {
-  return ContentService.createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeader("Access-Control-Allow-Origin", "https://yushi512.github.io")
-    .setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    .setHeader("Access-Control-Allow-Headers", "Content-Type")
-    .setHeader("Access-Control-Allow-Credentials", "false");
-}
-```
-
-4. 「デプロイ > 新しいデプロイ > 種類: ウェブアプリ」を選択し、アクセス権を「全員」に設定して公開すると URL が発行されます。この URL を `config.js` の `sheetsEndpoint` に入力してください。
-5. GitHub Pages や任意のホスティングへアップロードした後、ブラウザでページをハードリロードして最新の `config.js` を読み込みます。会計を 1 件行い、ステータスに「Google Sheets にも記録しました。」と表示され、シートの `SalesLog` に行が追加されることを確認してください。
-
-> **CORS エラーについて**  
-> Apps Script が `Access-Control-Allow-Origin` などのヘッダーを返さないと、ブラウザ側で `Failed to fetch` や `No 'Access-Control-Allow-Origin' header` が発生します。必ず上記 `buildCorsResponse` のようにヘッダーを設定し、コード変更後は最新バージョンで再デプロイしてください。
-
-## トラブルシューティング
-
-- `config.js` 404: ファイルをリポジトリに含めていないか、キャッシュが古い可能性があります。GitHub Pages をデプロイした後に `config.js` が配信されているか確認してください。
-- `Failed to fetch`: CORS 設定不足、Web アプリ未デプロイ、または `sheetsEndpoint` が空文字の場合に発生します。Apps Script のアクセス権とヘッダーを再確認し、ブラウザをリロードしてください。
-- Chrome 拡張機能が出すフォント読み込みエラー (例: `chrome-extension://.../open_sans.woff`) はアプリとは無関係です。気になる場合は拡張機能を無効化してください。
+アプリはプレーンな HTML/CSS/JavaScript で構成されているため、好みに応じて `styles.css` や `app.js` を編集するだけで見た目や挙動を調整できます。
