@@ -6,10 +6,12 @@
   };
 
   const DEFAULT_PRODUCTS = [
-    { id: "p-yakisoba", name: "焼きそば", price: 500 },
-    { id: "p-ramune", name: "ラムネ", price: 200 },
-    { id: "p-choco", name: "チョコバナナ", price: 400 },
-    { id: "p-juice", name: "ジュース", price: 250 },
+    { id: "p-plain", name: "プレーン（塩）", price: 500 },
+    { id: "p-mayo", name: "マヨネーズ", price: 600 },
+    { id: "p-mentai", name: "明太子マヨ", price: 600 },
+    { id: "p-blackpepper", name: "ブラックペッパー", price: 600 },
+    { id: "p-norishio", name: "海苔塩", price: 600 },
+    { id: "p-soybutter", name: "醤油バター", price: 600 },
   ];
 
   const DEFAULT_DISCOUNTS = [
@@ -33,6 +35,14 @@
   });
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
+
+  const normalizeProduct = (product) => {
+    const basePrice = Math.round(
+      product.basePrice ?? product.price ?? 0
+    );
+    const price = Math.round(product.price ?? basePrice);
+    return { ...product, basePrice, price };
+  };
 
   const els = {
     screens: document.querySelectorAll(".screen"),
@@ -97,10 +107,12 @@
       const price = Number(priceInput.value);
       if (!name || price < 0) return;
 
+      const normalizedPrice = Math.round(price);
       const product = {
         id: `p-${Date.now()}`,
         name,
-        price: Math.round(price),
+        price: normalizedPrice,
+        basePrice: normalizedPrice,
       };
       state.products.push(product);
       persistProducts();
@@ -125,6 +137,12 @@
       }
       if (action === "delete") {
         deleteProduct(id);
+      }
+      if (action === "sale") {
+        applyHundredYenDiscount(id);
+      }
+      if (action === "reset") {
+        resetProductPrice(id);
       }
     });
 
@@ -178,7 +196,9 @@
   }
 
   function loadState() {
-    state.products = loadFromStorage(STORAGE_KEYS.PRODUCTS, DEFAULT_PRODUCTS);
+    state.products = loadFromStorage(STORAGE_KEYS.PRODUCTS, DEFAULT_PRODUCTS).map(
+      normalizeProduct
+    );
     state.discounts = loadFromStorage(STORAGE_KEYS.DISCOUNTS, DEFAULT_DISCOUNTS);
     state.sales = loadFromStorage(STORAGE_KEYS.SALES, []);
     ensureDefaultDiscount();
@@ -226,11 +246,20 @@
     els.productList.innerHTML = "";
     state.products.forEach((product) => {
       const quantity = state.cart[product.id] ?? 0;
+      const onSale = product.price < (product.basePrice ?? product.price);
       const card = document.createElement("div");
       card.className = "product-card";
       card.innerHTML = `
         <h3>${product.name}</h3>
-        <p class="product-price">${currency.format(product.price)}</p>
+        <p class="product-price">
+          ${currency.format(product.price)}
+          ${onSale ? '<span class="sale-pill">−100円</span>' : ""}
+        </p>
+        ${
+          onSale
+            ? `<p class="price-note">標準: ${currency.format(product.basePrice)}</p>`
+            : ""
+        }
         <div class="qty-control">
           <button data-action="dec" data-id="${product.id}">−</button>
           <span class="qty-value">${quantity}</span>
@@ -293,12 +322,19 @@
       return;
     }
     els.adminProductList.innerHTML = state.products
-      .map(
-        (product) => `
+      .map((product) => {
+        const onSale = product.price < product.basePrice;
+        return `
         <div class="admin-row" data-product-id="${product.id}">
           <div>
             <h3>${product.name}</h3>
-            <small>ID: ${product.id}</small>
+            <small>ID: ${product.id}</small><br />
+            <small>標準価格: ${currency.format(product.basePrice)}</small>
+            ${
+              onSale
+                ? '<small class="sale-flag">※100円引き適用中</small>'
+                : ""
+            }
           </div>
           <input
             type="number"
@@ -309,12 +345,20 @@
           <button class="ghost" data-product-action="save" data-id="${product.id}">
             価格更新
           </button>
+          <button class="ghost" data-product-action="sale" data-id="${product.id}">
+            100円引き
+          </button>
+          <button class="ghost" data-product-action="reset" data-id="${product.id}" ${
+            product.price === product.basePrice ? "disabled" : ""
+          }>
+            標準に戻す
+          </button>
           <button class="danger" data-product-action="delete" data-id="${product.id}">
             削除
           </button>
         </div>
-      `
-      )
+      `;
+      })
       .join("");
   }
 
@@ -425,11 +469,10 @@
 
     state.sales.push(saleRecord);
     persistSales();
-    exportSalesToExcel();
     state.cart = {};
     renderProducts();
     renderCartSummary();
-    setStatus("会計が完了し、Excel に保存しました。", "success");
+    setStatus("会計データを保存しました。管理画面からエクスポートできます。", "success");
   }
 
   function exportSalesToExcel() {
@@ -523,12 +566,45 @@
     }
     const product = state.products.find((p) => p.id === id);
     if (!product) return;
-    product.price = Math.round(newPrice);
+    const rounded = Math.round(newPrice);
+    product.price = rounded;
+    product.basePrice = rounded;
     persistProducts();
     renderProducts();
     renderAdminProducts();
     renderCartSummary();
     setStatus(`「${product.name}」の価格を更新しました。`, "success");
+  }
+
+  function applyHundredYenDiscount(id) {
+    const product = state.products.find((p) => p.id === id);
+    if (!product) return;
+    const adjusted = Math.max(0, product.basePrice - 100);
+    if (product.price === adjusted) {
+      setStatus(`「${product.name}」は既に100円引きです。`, "info");
+      return;
+    }
+    product.price = adjusted;
+    persistProducts();
+    renderProducts();
+    renderAdminProducts();
+    renderCartSummary();
+    setStatus(`「${product.name}」を100円引きに調整しました。`, "success");
+  }
+
+  function resetProductPrice(id) {
+    const product = state.products.find((p) => p.id === id);
+    if (!product) return;
+    if (product.price === product.basePrice) {
+      setStatus(`「${product.name}」は標準価格です。`, "info");
+      return;
+    }
+    product.price = product.basePrice;
+    persistProducts();
+    renderProducts();
+    renderAdminProducts();
+    renderCartSummary();
+    setStatus(`「${product.name}」の価格を標準に戻しました。`, "success");
   }
 
   function deleteProduct(id) {

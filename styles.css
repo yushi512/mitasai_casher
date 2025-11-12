@@ -119,6 +119,23 @@ main {
   font-weight: 600;
 }
 
+.sale-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 122, 0, 0.15);
+  color: var(--accent);
+  font-size: 0.75rem;
+  vertical-align: middle;
+}
+
+.price-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .qty-control {
   margin-top: auto;
   display: grid;
@@ -320,6 +337,11 @@ button:active {
 
 .admin-row small {
   color: var(--muted);
+}
+
+.sale-flag {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .admin-row button {
