@@ -311,6 +311,49 @@ button:active {
   margin-bottom: 12px;
 }
 
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sheets-panel {
+  flex-basis: 100%;
+}
+
+.sheets-panel h2 {
+  margin-top: 0;
+}
+
+.sheets-panel summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+
+.settings-form input {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-label input {
+  width: auto;
+}
+
+.settings-form .action-buttons {
+  flex-wrap: wrap;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .inline-form input {
   flex: 1 1 180px;
 }
@@ -376,3 +419,4 @@ button:active {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
+

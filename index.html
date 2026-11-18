@@ -9,6 +9,7 @@
       defer
       src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
     ></script>
+    <script defer src="sheets-sync.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -29,6 +30,33 @@
 
     <main>
       <section id="main-screen" class="screen active" aria-label="メイン画面">
+        <div class="panel card sheets-panel">
+          <h2>売上の記録先</h2>
+          <p>指定したファイルの「MitasaiSales」シートに、設定後の会計を自動で追記します。</p>
+          <form id="sheets-settings-form" class="settings-form">
+            <label class="checkbox-label"><input id="sheets-enabled" type="checkbox" /> 自動記録を有効にする</label>
+            <label for="spreadsheet-url">記録先のスプレッドシートURL または ID</label>
+            <input id="spreadsheet-url" type="text" placeholder="https://docs.google.com/spreadsheets/d/…/edit" autocomplete="off" />
+            <details id="sheets-external-settings">
+              <summary>初回のGoogle連携設定</summary>
+              <div class="settings-form">
+                <label for="sheets-endpoint">Apps ScriptのウェブアプリURL</label>
+                <input id="sheets-endpoint" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" />
+                <label for="sheets-token">接続用トークン</label>
+                <input id="sheets-token" type="password" autocomplete="off" />
+                <p class="hint">初回の接続手順は <a href="https://github.com/yushi512/mitasai_casher#googleスプレッドシートへの自動記録" target="_blank" rel="noopener noreferrer">README</a> を参照してください。設定とトークンはこのブラウザに保存されます。</p>
+              </div>
+            </details>
+            <div class="action-buttons">
+              <button id="sheets-save-button" type="submit" class="primary">接続を確認して保存</button>
+              <button id="sheets-test-button" type="button" class="ghost">接続を確認</button>
+            </div>
+          </form>
+          <p id="sheets-status" role="status" aria-live="polite"></p>
+          <p><a id="sheets-current-link" target="_blank" rel="noopener noreferrer" hidden>保存済みの記録先を開く</a></p>
+          <button id="sheets-retry-button" type="button" class="ghost">未送信の会計を再送</button>
+          <p class="hint">未送信分は会計時の記録先に保持されます。再送するには同じ記録先を設定してください。設定前の履歴は自動送信されません。</p>
+        </div>
         <div class="panel products-panel card">
           <div class="panel-header">
             <h2>商品一覧</h2>
@@ -128,3 +156,4 @@
     </main>
   </body>
 </html>
+

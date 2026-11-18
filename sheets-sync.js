@@ -1,0 +1,105 @@
+(function (root) {
+  "use strict";
+
+  const isHosted = root.document?.documentElement.dataset.host === "apps-script";
+
+  function parseSpreadsheetId(value) {
+    const input = value.trim();
+    if (/^[a-zA-Z0-9_-]{20,200}$/.test(input)) return input;
+    let url;
+    try { url = new URL(input); } catch { throw new Error("スプレッドシートのURL または IDを入力してください。"); }
+    const match = url.pathname.match(/^\/spreadsheets\/d\/([a-zA-Z0-9_-]{20,200})(?:\/|$)/);
+    if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !match) {
+      throw new Error("Googleスプレッドシートの編集用URLを入力してください。");
+    }
+    return match[1];
+  }
+
+  function normalizeSettings(input) {
+    if (isHosted) {
+      return {
+        enabled: Boolean(input.enabled),
+        spreadsheetId: parseSpreadsheetId(input.spreadsheetId),
+        spreadsheetName: input.spreadsheetName || "",
+        endpoint: "apps-script",
+        token: "",
+      };
+    }
+    const endpoint = input.endpoint.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[a-zA-Z0-9_-]+\/exec$/.test(endpoint)) {
+      throw new Error("Apps ScriptのウェブアプリURL（末尾が /exec）を入力してください。");
+    }
+    const token = input.token.trim();
+    if (token.length < 32) throw new Error("接続用トークンは32文字以上で設定してください。");
+    return {
+      enabled: Boolean(input.enabled), spreadsheetId: parseSpreadsheetId(input.spreadsheetId), endpoint, token,
+      ...(input.spreadsheetName ? { spreadsheetName: input.spreadsheetName } : {}),
+    };
+  }
+
+  function matchesTarget(sale, settings) {
+    return sale.sheetsSync?.spreadsheetId === settings.spreadsheetId &&
+      sale.sheetsSync?.endpoint === settings.endpoint;
+  }
+
+  function requestHosted(body) {
+    return new Promise((resolve, reject) => {
+      const runner = root.google?.script?.run;
+      if (!runner) {
+        reject(new Error("Apps Scriptの /exec URLからレジを開いてください。"));
+        return;
+      }
+      const timer = setTimeout(() => reject(new Error("接続がタイムアウトしました。")), 30000);
+      function finish(callback, value) {
+        clearTimeout(timer);
+        callback(value);
+      }
+      try {
+        runner
+          .withSuccessHandler((result) => finish(resolve, result))
+          .withFailureHandler((error) => finish(reject, error))
+          .hostedSales(body);
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+  }
+
+  function confirmResult(result, action, sale) {
+    if (result?.ok !== true) throw new Error(result?.error || "スプレッドシートへの記録に失敗しました。");
+    if (action === "append" && result.saleId !== sale.id) throw new Error("記録結果を確認できませんでした。再送してください。");
+    return result;
+  }
+
+  async function request(settings, action, sale, fetchImpl) {
+    if (isHosted) {
+      const body = { action, spreadsheetId: settings.spreadsheetId };
+      if (sale) body.sale = sale;
+      return confirmResult(await requestHosted(body), action, sale);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await (fetchImpl ?? root.fetch.bind(root))(settings.endpoint, {
+        method: "POST",
+        // A simple request avoids an OPTIONS preflight, which Apps Script does not serve.
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        credentials: "omit",
+        redirect: "follow",
+        signal: controller.signal,
+        body: JSON.stringify({ action, token: settings.token, spreadsheetId: settings.spreadsheetId, sale }),
+      });
+      if (!response.ok) throw new Error("接続できませんでした。ウェブアプリの公開設定を確認してください。");
+      return confirmResult(await response.json(), action, sale);
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("接続がタイムアウトしました。未送信分は再送できます。");
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const api = { isHosted, parseSpreadsheetId, normalizeSettings, matchesTarget, request };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.MitasaiSheets = api;
+})(globalThis);
