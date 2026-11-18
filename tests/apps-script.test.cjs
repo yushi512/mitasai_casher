@@ -4,7 +4,7 @@ const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
 
-function server() {
+function server({ visitor = "register@example.test", effective = visitor, canEdit = true } = {}) {
   const rows = [];
   let exists = false;
   let locked = false;
@@ -13,12 +13,15 @@ function server() {
   const properties = { MITASAI_TOKEN: "t".repeat(40), MITASAI_SPREADSHEET_IDS: "a".repeat(44) };
   const sheet = {
     getLastRow: () => rows.length,
+    getMaxRows: () => 1000,
     getRange: (row, column, count, width) => ({
+      canEdit: () => canEdit,
       getValues: () => Array.from({ length: count }, (_, index) => (rows[row - 1 + index] || []).slice(column - 1, column - 1 + width)),
       setValues: (values) => { assert.equal(locked, true); values.forEach((value, index) => { rows[row - 1 + index] = Array.from(value); }); },
     }),
   };
   const context = vm.createContext({
+    Session: { getActiveUser: () => ({ getEmail: () => visitor }), getEffectiveUser: () => ({ getEmail: () => effective }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (key) => properties[key] }) },
     LockService: { getScriptLock: () => ({ waitLock: () => { locked = true; }, releaseLock: () => { locked = false; } }) },
     SpreadsheetApp: {
@@ -29,8 +32,30 @@ function server() {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../apps-script/Code.gs"), "utf8"), context);
   const request = (overrides = {}) => context.doPost({ postData: { contents: JSON.stringify({ token: properties.MITASAI_TOKEN, spreadsheetId: properties.MITASAI_SPREADSHEET_IDS, action: "append", sale: sale(), ...overrides }) } });
-  return { rows, request, properties, setFlushFailure: (value) => { flushFailure = value; }, get locked() { return locked; }, get openCount() { return openCount; } };
+  const hosted = (body) => context.hostedSales(body);
+  return { rows, request, hosted, properties, setFlushFailure: (value) => { flushFailure = value; }, get locked() { return locked; }, get openCount() { return openCount; } };
 }
+
+test("hosted setup accepts a new spreadsheet outside the standalone connector allowlist", () => {
+  const s = server();
+  const spreadsheetId = "b".repeat(44);
+  assert.equal(s.hosted({ action: "check", spreadsheetId }).spreadsheetName, "Test Sales");
+  assert.equal(s.rows.length, 1, "setup writes a header but no sale");
+  const request = { action: "append", spreadsheetId, sale: sale() };
+  assert.equal(s.hosted(request).ok, true);
+  assert.equal(s.hosted(request).duplicate, true);
+  assert.equal(s.rows.length, 2);
+});
+
+test("hosted setup rejects execution as another account or ranges the user cannot edit", () => {
+  const body = { action: "check", spreadsheetId: "b".repeat(44) };
+  const wrongAccount = server({ effective: "owner@example.test" });
+  assert.equal(wrongAccount.hosted(body).ok, false);
+  assert.equal(wrongAccount.openCount, 0);
+  const viewer = server({ canEdit: false });
+  assert.equal(viewer.hosted(body).ok, false);
+  assert.equal(viewer.rows.length, 0);
+});
 
 function sale() {
   return { id: "sale-12345678-1234-4123-8123-123456789abc", timestamp: "2026-11-18T10:00:00.000Z", items: [{ name: "塩", quantity: 2, price: 500, lineTotal: 1000 }], subtotal: 1000, discountLabel: "学生割", discountRate: 10, discountAmount: 100, total: 900, totalQuantity: 2 };

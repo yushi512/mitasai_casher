@@ -8,7 +8,7 @@ const { randomUUID } = require("node:crypto");
 const settings = { enabled: true, spreadsheetId: "a".repeat(44), endpoint: "https://script.google.com/macros/s/test/exec", token: "t".repeat(40) };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-function app(initial = {}, request = async (_, __, sale) => ({ ok: true, saleId: sale.id })) {
+function app(initial = {}, request = async (_, __, sale) => ({ ok: true, saleId: sale.id }), hosted = false) {
   const data = new Map(Object.entries(initial).map(([key, value]) => [key, JSON.stringify(value)]));
   const elements = new Map();
   let failSales = false;
@@ -22,11 +22,21 @@ function app(initial = {}, request = async (_, __, sale) => ({ ok: true, saleId:
     return elements.get(id);
   }
   const context = vm.createContext({
-    document: { getElementById: element, querySelectorAll: () => [], createElement: () => element(randomUUID()) },
+    document: { documentElement: { dataset: { host: hosted ? "apps-script" : "" } }, getElementById: element, querySelectorAll: () => [], createElement: () => element(randomUUID()) },
     window: { addEventListener() {} },
     localStorage: { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => { if (failSales && key === "mitasai_sales") throw new Error("quota"); data.set(key, value); } },
     console, Intl, crypto: { randomUUID }, MitasaiSheets: { ...sheets, request },
+    URL, setTimeout, clearTimeout,
   });
+  if (hosted) {
+    const runner = {
+      withSuccessHandler(callback) { this.success = callback; return this; },
+      withFailureHandler(callback) { this.failure = callback; return this; },
+      hostedSales(body) { request(body).then(this.success, this.failure); },
+    };
+    context.google = { script: { run: runner } };
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "../sheets-sync.js"), "utf8"), context);
+  }
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../app.js"), "utf8"), context);
   const event = { preventDefault() {} };
   return {
@@ -41,6 +51,30 @@ function app(initial = {}, request = async (_, __, sale) => ({ ok: true, saleId:
     retry: () => element("sheets-retry-button").listeners.click(),
   };
 }
+
+test("hosted register saves an editable URL and uses it after rejecting an invalid destination", async () => {
+  const calls = [];
+  const allowed = "x".repeat(44);
+  const a = app({}, async (body) => {
+    calls.push(body);
+    if (body.spreadsheetId !== allowed) return { ok: false, error: "編集権限がありません。" };
+    return body.action === "check"
+      ? { ok: true, spreadsheetName: "三田祭 売上" }
+      : { ok: true, saleId: body.sale.id };
+  }, true);
+  assert.equal(a.element("sheets-external-settings").hidden, true);
+  a.element("spreadsheet-url").value = `https://docs.google.com/spreadsheets/d/${allowed}/edit#gid=0`;
+  await a.save();
+  assert.match(a.element("sheets-current-link").textContent, /三田祭 売上/);
+  a.element("spreadsheet-url").value = "y".repeat(44);
+  await a.save();
+  assert.match(a.element("sheets-status").textContent, /編集権限がありません/);
+  a.checkout();
+  await tick();
+  assert.equal(a.sales()[0].sheetsSync.status, "sent");
+  assert.equal(calls[2].spreadsheetId, allowed);
+  assert.equal(Object.hasOwn(calls[2], "token"), false);
+});
 
 test("offline sales stay pending, survive reload, and retry using the original ID", async () => {
   const calls = [];

@@ -29,6 +29,7 @@
     selectedDiscountId: null,
     sheets: { enabled: false, spreadsheetId: "", endpoint: "", token: "" },
     syncing: false,
+    checkingTarget: false,
   };
 
   const currency = new Intl.NumberFormat("ja-JP", {
@@ -71,6 +72,8 @@
     sheetsToken: document.getElementById("sheets-token"),
     sheetsStatus: document.getElementById("sheets-status"),
     sheetsTest: document.getElementById("sheets-test-button"),
+    sheetsSave: document.getElementById("sheets-save-button"),
+    sheetsExternalSettings: document.getElementById("sheets-external-settings"),
     sheetsRetry: document.getElementById("sheets-retry-button"),
     sheetsCurrentLink: document.getElementById("sheets-current-link"),
   };
@@ -82,6 +85,11 @@
     renderAll();
     attachEventListeners();
     setStatus("準備ができました。", "success");
+    if (MitasaiSheets.isHosted) {
+      els.sheetsExternalSettings.hidden = true;
+      els.sheetsTest.hidden = true;
+      els.sheetsSave.textContent = "接続を確認して保存";
+    }
     renderSheetsSettings();
     void syncPendingSales();
   }
@@ -148,7 +156,7 @@
       const id = button.dataset.id;
       if (action === "save") {
         const priceInput = els.adminProductList.querySelector(
-          `input[data-price-id="${id}"]`
+          `input[data-price-id="${CSS.escape(id)}"]`
         );
         const newPrice = Number(priceInput.value);
         updateProductPrice(id, newPrice);
@@ -193,7 +201,7 @@
       const id = button.dataset.id;
       if (action === "save") {
         const rateInput = els.adminDiscountList.querySelector(
-          `input[data-rate-id="${id}"]`
+          `input[data-rate-id="${CSS.escape(id)}"]`
         );
         const newRate = Number(rateInput.value);
         updateDiscountRate(id, newRate);
@@ -265,6 +273,11 @@
     renderAdminDiscounts();
   }
 
+  function escapeHtml(value) {
+    const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+    return String(value).replace(/[&<>"']/g, (char) => entities[char]);
+  }
+
   function renderProducts() {
     els.productList.innerHTML = "";
     state.products.forEach((product) => {
@@ -273,7 +286,7 @@
       const card = document.createElement("div");
       card.className = "product-card";
       card.innerHTML = `
-        <h3>${product.name}</h3>
+        <h3>${escapeHtml(product.name)}</h3>
         <p class="product-price">
           ${currency.format(product.price)}
           ${onSale ? '<span class="sale-pill">−100円</span>' : ""}
@@ -284,9 +297,9 @@
             : ""
         }
         <div class="qty-control">
-          <button data-action="dec" data-id="${product.id}">−</button>
+          <button data-action="dec" data-id="${escapeHtml(product.id)}">−</button>
           <span class="qty-value">${quantity}</span>
-          <button data-action="inc" data-id="${product.id}">＋</button>
+          <button data-action="inc" data-id="${escapeHtml(product.id)}">＋</button>
         </div>
       `;
       els.productList.appendChild(card);
@@ -305,7 +318,7 @@
         const row = document.createElement("div");
         row.className = "cart-row";
         row.innerHTML = `
-          <span>${item.name} × ${item.quantity}</span>
+          <span>${escapeHtml(item.name)} × ${item.quantity}</span>
           <span>${currency.format(item.lineTotal)}</span>
         `;
         els.cartItems.appendChild(row);
@@ -328,8 +341,8 @@
     els.discountSelect.innerHTML = state.discounts
       .map(
         (discount) => `
-        <option value="${discount.id}">
-          ${discount.label} (${discount.rate}%)
+        <option value="${escapeHtml(discount.id)}">
+          ${escapeHtml(discount.label)} (${escapeHtml(discount.rate)}%)
         </option>`
       )
       .join("");
@@ -348,10 +361,10 @@
       .map((product) => {
         const onSale = product.price < product.basePrice;
         return `
-        <div class="admin-row" data-product-id="${product.id}">
+        <div class="admin-row" data-product-id="${escapeHtml(product.id)}">
           <div>
-            <h3>${product.name}</h3>
-            <small>ID: ${product.id}</small><br />
+            <h3>${escapeHtml(product.name)}</h3>
+            <small>ID: ${escapeHtml(product.id)}</small><br />
             <small>標準価格: ${currency.format(product.basePrice)}</small>
             ${
               onSale
@@ -362,21 +375,21 @@
           <input
             type="number"
             min="0"
-            data-price-id="${product.id}"
-            value="${product.price}"
+            data-price-id="${escapeHtml(product.id)}"
+            value="${escapeHtml(product.price)}"
           />
-          <button class="ghost" data-product-action="save" data-id="${product.id}">
+          <button class="ghost" data-product-action="save" data-id="${escapeHtml(product.id)}">
             価格更新
           </button>
-          <button class="ghost" data-product-action="sale" data-id="${product.id}">
+          <button class="ghost" data-product-action="sale" data-id="${escapeHtml(product.id)}">
             100円引き
           </button>
-          <button class="ghost" data-product-action="reset" data-id="${product.id}" ${
+          <button class="ghost" data-product-action="reset" data-id="${escapeHtml(product.id)}" ${
             product.price === product.basePrice ? "disabled" : ""
           }>
             標準に戻す
           </button>
-          <button class="danger" data-product-action="delete" data-id="${product.id}">
+          <button class="danger" data-product-action="delete" data-id="${escapeHtml(product.id)}">
             削除
           </button>
         </div>
@@ -393,26 +406,26 @@
     els.adminDiscountList.innerHTML = state.discounts
       .map(
         (discount) => `
-        <div class="admin-row" data-discount-id="${discount.id}">
+        <div class="admin-row" data-discount-id="${escapeHtml(discount.id)}">
           <div>
-            <h3>${discount.label}</h3>
-            <small>ID: ${discount.id}</small>
+            <h3>${escapeHtml(discount.label)}</h3>
+            <small>ID: ${escapeHtml(discount.id)}</small>
           </div>
           <input
             type="number"
             min="0"
             max="100"
             step="1"
-            data-rate-id="${discount.id}"
-            value="${discount.rate}"
+            data-rate-id="${escapeHtml(discount.id)}"
+            value="${escapeHtml(discount.rate)}"
           />
-          <button class="ghost" data-discount-action="save" data-id="${discount.id}">
+          <button class="ghost" data-discount-action="save" data-id="${escapeHtml(discount.id)}">
             割引率更新
           </button>
           ${
             discount.rate === 0
               ? `<button class="ghost" disabled>削除不可</button>`
-              : `<button class="danger" data-discount-action="delete" data-id="${discount.id}">削除</button>`
+              : `<button class="danger" data-discount-action="delete" data-id="${escapeHtml(discount.id)}">削除</button>`
           }
         </div>
       `
@@ -465,6 +478,7 @@
   }
 
   function handleCheckout() {
+    if (state.checkingTarget) return;
     const items = getCartItems();
     if (!items.length) {
       setStatus("商品を選択してください。", "error");
@@ -524,12 +538,14 @@
 
   function renderSheetsSettings() {
     const settings = state.sheets;
-    els.sheetsEnabled.checked = settings.enabled;
+    els.sheetsEnabled.checked = settings.enabled || (MitasaiSheets.isHosted && !settings.spreadsheetId);
     els.spreadsheetUrl.value = settings.spreadsheetId
       ? `https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}/edit` : "";
     els.sheetsEndpoint.value = settings.endpoint;
     els.sheetsToken.value = settings.token;
     els.sheetsCurrentLink.hidden = !settings.spreadsheetId;
+    els.sheetsCurrentLink.textContent = settings.spreadsheetName
+      ? `「${settings.spreadsheetName}」を開く` : "保存済みの記録先を開く";
     els.sheetsCurrentLink.href = settings.spreadsheetId
       ? `https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}/edit` : "";
     renderSheetsStatus();
@@ -541,22 +557,41 @@
     const mode = state.sheets.enabled ? "自動記録：有効" : "自動記録：停止中（会計は端末に保存）";
     els.sheetsStatus.textContent = `${mode}。未送信：${current.length}件（別の記録先：${pending.length - current.length}件）。${message}`;
     els.sheetsStatus.classList.toggle("status-error", error);
-    els.sheetsRetry.disabled = state.syncing || !current.length || !state.sheets.enabled;
+    els.sheetsRetry.disabled = state.syncing || state.checkingTarget || !current.length || !state.sheets.enabled;
   }
 
-  function saveSheetsSettings(event) {
+  async function saveSheetsSettings(event) {
     event.preventDefault();
-    if (state.syncing) return;
+    if (state.syncing || state.checkingTarget) return;
+    const fields = [...els.sheetsForm.querySelectorAll("input, button")];
+    let message = "";
+    let failed = false;
     try {
       // Turning off an existing or unconfigured connection must always be possible.
       const settings = els.sheetsEnabled.checked ? readSheetsForm() : { ...state.sheets, enabled: false };
+      if (MitasaiSheets.isHosted && settings.enabled) {
+        state.checkingTarget = true;
+        els.checkoutButton.disabled = true;
+        fields.forEach((field) => { field.disabled = true; });
+        renderSheetsStatus("記録先の編集権限を確認しています…");
+        const result = await MitasaiSheets.request(settings, "check");
+        settings.spreadsheetName = result.spreadsheetName;
+      }
       localStorage.setItem(STORAGE_KEYS.SHEETS, JSON.stringify(settings));
       state.sheets = settings;
       renderSheetsSettings();
-      renderSheetsStatus("設定を保存しました。");
-      void syncPendingSales();
+      message = "設定を保存しました。";
     } catch (error) {
-      renderSheetsStatus(error.message, true);
+      message = error.message;
+      failed = true;
+    } finally {
+      if (state.checkingTarget) {
+        state.checkingTarget = false;
+        els.checkoutButton.disabled = false;
+        fields.forEach((field) => { field.disabled = false; });
+      }
+      renderSheetsStatus(message, failed);
+      void syncPendingSales();
     }
   }
 
@@ -575,7 +610,8 @@
   }
 
   async function syncPendingSales() {
-    if (state.syncing || !state.sheets.enabled) return;
+    if (state.syncing || state.checkingTarget || !state.sheets.enabled ||
+        !state.sales.some((sale) => sale.sheetsSync?.status === "pending" && MitasaiSheets.matchesTarget(sale, state.sheets))) return;
     state.syncing = true;
     const settings = { ...state.sheets };
     // Freeze connection fields while a request is in flight; checkout remains available.

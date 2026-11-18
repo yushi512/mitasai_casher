@@ -37,7 +37,7 @@
             <label class="checkbox-label"><input id="sheets-enabled" type="checkbox" /> 自動記録を有効にする</label>
             <label for="spreadsheet-url">記録先のスプレッドシートURL または ID</label>
             <input id="spreadsheet-url" type="text" placeholder="https://docs.google.com/spreadsheets/d/…/edit" autocomplete="off" />
-            <details>
+            <details id="sheets-external-settings">
               <summary>初回のGoogle連携設定</summary>
               <div class="settings-form">
                 <label for="sheets-endpoint">Apps ScriptのウェブアプリURL</label>
@@ -48,7 +48,7 @@
               </div>
             </details>
             <div class="action-buttons">
-              <button type="submit" class="primary">記録先を保存</button>
+              <button id="sheets-save-button" type="submit" class="primary">記録先を保存</button>
               <button id="sheets-test-button" type="button" class="ghost">接続を確認</button>
             </div>
           </form>
