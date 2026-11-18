@@ -91,6 +91,10 @@
       els.sheetsSave.textContent = "接続を確認して保存";
     }
     renderSheetsSettings();
+    els.sheetsSave.textContent = "接続を確認して保存";
+    if (!MitasaiSheets.isHosted && !state.sheets.endpoint) {
+      els.sheetsExternalSettings.open = true;
+    }
     void syncPendingSales();
   }
 
@@ -538,7 +542,7 @@
 
   function renderSheetsSettings() {
     const settings = state.sheets;
-    els.sheetsEnabled.checked = settings.enabled || (MitasaiSheets.isHosted && !settings.spreadsheetId);
+    els.sheetsEnabled.checked = settings.enabled || !settings.spreadsheetId;
     els.spreadsheetUrl.value = settings.spreadsheetId
       ? `https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}/edit` : "";
     els.sheetsEndpoint.value = settings.endpoint;
@@ -569,11 +573,11 @@
     try {
       // Turning off an existing or unconfigured connection must always be possible.
       const settings = els.sheetsEnabled.checked ? readSheetsForm() : { ...state.sheets, enabled: false };
-      if (MitasaiSheets.isHosted && settings.enabled) {
+      if (settings.enabled) {
         state.checkingTarget = true;
         els.checkoutButton.disabled = true;
         fields.forEach((field) => { field.disabled = true; });
-        renderSheetsStatus("記録先の編集権限を確認しています…");
+        renderSheetsStatus("記録先への接続を確認しています…");
         const result = await MitasaiSheets.request(settings, "check");
         settings.spreadsheetName = result.spreadsheetName;
       }
@@ -591,7 +595,7 @@
         fields.forEach((field) => { field.disabled = false; });
       }
       renderSheetsStatus(message, failed);
-      void syncPendingSales();
+      if (!failed) void syncPendingSales();
     }
   }
 

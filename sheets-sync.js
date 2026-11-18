@@ -31,7 +31,10 @@
     }
     const token = input.token.trim();
     if (token.length < 32) throw new Error("接続用トークンは32文字以上で設定してください。");
-    return { enabled: Boolean(input.enabled), spreadsheetId: parseSpreadsheetId(input.spreadsheetId), endpoint, token };
+    return {
+      enabled: Boolean(input.enabled), spreadsheetId: parseSpreadsheetId(input.spreadsheetId), endpoint, token,
+      ...(input.spreadsheetName ? { spreadsheetName: input.spreadsheetName } : {}),
+    };
   }
 
   function matchesTarget(sale, settings) {

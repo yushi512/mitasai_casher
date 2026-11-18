@@ -76,6 +76,35 @@ test("hosted register saves an editable URL and uses it after rejecting an inval
   assert.equal(Object.hasOwn(calls[2], "token"), false);
 });
 
+test("GitHub Pages saves a reachable spreadsheet and keeps it when a replacement fails", async () => {
+  const calls = [];
+  const a = app({}, async (config, action, sale) => {
+    calls.push({ config, action });
+    if (config.spreadsheetId !== settings.spreadsheetId) throw new Error("接続できません。");
+    return action === "check"
+      ? { ok: true, spreadsheetName: "三田祭 売上" }
+      : { ok: true, saleId: sale.id };
+  });
+  assert.equal(a.element("sheets-external-settings").open, true);
+  a.element("spreadsheet-url").value = settings.spreadsheetId;
+  a.element("sheets-endpoint").value = settings.endpoint;
+  a.element("sheets-token").value = settings.token;
+  await a.save();
+  assert.match(a.element("sheets-current-link").textContent, /三田祭 売上/);
+  a.element("spreadsheet-url").value = "z".repeat(44);
+  await a.save();
+  assert.match(a.element("sheets-status").textContent, /接続できません/);
+  a.checkout();
+  await tick();
+  assert.equal(calls[2].config.spreadsheetId, settings.spreadsheetId);
+  assert.equal(a.sales()[0].sheetsSync.status, "sent");
+  a.element("sheets-enabled").checked = false;
+  await a.save();
+  a.checkout();
+  assert.equal(calls.length, 3);
+  assert.equal(a.sales()[1].sheetsSync, undefined);
+});
+
 test("offline sales stay pending, survive reload, and retry using the original ID", async () => {
   const calls = [];
   const a = app({ mitasai_sheets_settings: settings }, async (_, __, sale) => { calls.push(sale.id); throw new Error("offline"); });
@@ -93,7 +122,8 @@ test("offline sales stay pending, survive reload, and retry using the original I
 test("switching targets does not reroute previous pending sales or backfill old sales", async () => {
   const requests = [];
   let fail = true;
-  const a = app({ mitasai_sheets_settings: settings, mitasai_sales: [{ id: "legacy" }] }, async (config, _, sale) => {
+  const a = app({ mitasai_sheets_settings: settings, mitasai_sales: [{ id: "legacy" }] }, async (config, action, sale) => {
+    if (action === "check") return { ok: true, spreadsheetName: "売上" };
     requests.push({ target: config.spreadsheetId, id: sale.id });
     if (fail) throw new Error("offline");
     return { ok: true, saleId: sale.id };
@@ -101,7 +131,7 @@ test("switching targets does not reroute previous pending sales or backfill old 
   a.checkout(); await tick();
   const first = a.sales()[1].id;
   a.element("spreadsheet-url").value = "b".repeat(44);
-  a.save();
+  await a.save();
   fail = false;
   a.checkout(); await tick();
   assert.equal(requests.length, 2);
@@ -109,7 +139,7 @@ test("switching targets does not reroute previous pending sales or backfill old 
   assert.equal(a.sales()[1].sheetsSync.status, "pending");
   assert.equal(a.sales()[2].sheetsSync.status, "sent");
   a.element("spreadsheet-url").value = settings.spreadsheetId;
-  a.save(); await tick();
+  await a.save(); await tick();
   assert.equal(requests[2].id, first);
   assert.equal(requests[2].target, settings.spreadsheetId);
   assert.equal(a.sales()[1].sheetsSync.status, "sent");
