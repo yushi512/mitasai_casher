@@ -11,9 +11,9 @@ function inlineAsset(html, tag, replacement) {
 }
 
 let html = read("index.html").replace('<html lang="ja">', '<html lang="ja" data-host="apps-script">');
-html = inlineAsset(html, '<link rel="stylesheet" href="styles.css?v=sheets-2" />', `<style>\n${read("styles.css")}\n</style>`);
+html = inlineAsset(html, '<link rel="stylesheet" href="styles.css?v=sheets-3" />', `<style>\n${read("styles.css")}\n</style>`);
 const scripts = ["sheets-sync.js", "app.js"].map((file) => {
-  html = inlineAsset(html, `<script defer src="${file}?v=sheets-2"></script>`, "");
+  html = inlineAsset(html, `<script defer src="${file}?v=sheets-3"></script>`, "");
   return `<script>\n${read(file)}\n</script>`;
 });
 html = inlineAsset(html, "</body>", `${scripts.join("\n")}\n</body>`);

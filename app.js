@@ -18,7 +18,6 @@
   const DEFAULT_DISCOUNTS = [
     { id: "discount-none", label: "割引なし", rate: 0 },
     { id: "discount-student", label: "学生割 (10%)", rate: 10 },
-    { id: "discount-happy", label: "ハッピーアワー (20%)", rate: 20 },
   ];
 
   const state = {
@@ -230,6 +229,14 @@
       normalizeProduct
     );
     state.discounts = loadFromStorage(STORAGE_KEYS.DISCOUNTS, DEFAULT_DISCOUNTS);
+    const activeDiscounts = state.discounts.filter((discount) =>
+      discount.id !== "discount-happy" && !String(discount.label).includes("ハッピーアワー")
+    );
+    if (activeDiscounts.length !== state.discounts.length) {
+      state.discounts = activeDiscounts;
+      try { persistDiscounts(); }
+      catch (error) { console.warn("Failed to save updated discounts", error); }
+    }
     state.sales = loadFromStorage(STORAGE_KEYS.SALES, []);
     const settings = loadFromStorage(STORAGE_KEYS.SHEETS, null);
     if (settings) {

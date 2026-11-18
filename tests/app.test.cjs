@@ -105,6 +105,24 @@ test("GitHub Pages saves a reachable spreadsheet and keeps it when a replacement
   assert.equal(a.sales()[1].sheetsSync, undefined);
 });
 
+test("removes happy hour from new and saved discount settings while retaining sales history", () => {
+  const fresh = app();
+  assert.doesNotMatch(fresh.element("discount-select").innerHTML, /ハッピーアワー/);
+  const historicalSale = { id: "historical", discountLabel: "ハッピーアワー (20%)", total: 400 };
+  const existing = app({
+    mitasai_discounts: [
+      { id: "discount-none", label: "割引なし", rate: 0 },
+      { id: "discount-happy", label: "ハッピーアワー (20%)", rate: 20 },
+      { id: "discount-custom", label: "特別割引", rate: 15 },
+    ],
+    mitasai_sales: [historicalSale],
+  });
+  assert.doesNotMatch(existing.element("discount-select").innerHTML, /ハッピーアワー/);
+  assert.match(existing.element("discount-select").innerHTML, /特別割引/);
+  assert.equal(JSON.parse(existing.data.get("mitasai_discounts")).length, 2);
+  assert.deepEqual(existing.sales(), [historicalSale]);
+});
+
 test("offline sales stay pending, survive reload, and retry using the original ID", async () => {
   const calls = [];
   const a = app({ mitasai_sheets_settings: settings }, async (_, __, sale) => { calls.push(sale.id); throw new Error("offline"); });
