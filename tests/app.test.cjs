@@ -1,0 +1,102 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const sheets = require("../sheets-sync.js");
+const { randomUUID } = require("node:crypto");
+const settings = { enabled: true, spreadsheetId: "a".repeat(44), endpoint: "https://script.google.com/macros/s/test/exec", token: "t".repeat(40) };
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+function app(initial = {}, request = async (_, __, sale) => ({ ok: true, saleId: sale.id })) {
+  const data = new Map(Object.entries(initial).map(([key, value]) => [key, JSON.stringify(value)]));
+  const elements = new Map();
+  let failSales = false;
+  function element(id) {
+    if (!elements.has(id)) {
+      elements.set(id, { value: "", checked: false, disabled: false, dataset: {}, textContent: "", innerHTML: "", listeners: {},
+        classList: { add() {}, remove() {}, toggle() {} }, appendChild() {},
+        querySelectorAll: () => [], addEventListener(type, callback) { this.listeners[type] = callback; },
+      });
+    }
+    return elements.get(id);
+  }
+  const context = vm.createContext({
+    document: { getElementById: element, querySelectorAll: () => [], createElement: () => element(randomUUID()) },
+    window: { addEventListener() {} },
+    localStorage: { getItem: (key) => data.get(key) ?? null, setItem: (key, value) => { if (failSales && key === "mitasai_sales") throw new Error("quota"); data.set(key, value); } },
+    console, Intl, crypto: { randomUUID }, MitasaiSheets: { ...sheets, request },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../app.js"), "utf8"), context);
+  const event = { preventDefault() {} };
+  return {
+    element, data,
+    sales: () => JSON.parse(data.get("mitasai_sales") || "[]"),
+    setFailure: (value) => { failSales = value; },
+    checkout: () => {
+      element("product-list").listeners.click({ target: { closest: () => ({ dataset: { action: "inc", id: "p-plain" } }) } });
+      element("checkout-button").listeners.click();
+    },
+    save: () => element("sheets-settings-form").listeners.submit(event),
+    retry: () => element("sheets-retry-button").listeners.click(),
+  };
+}
+
+test("offline sales stay pending, survive reload, and retry using the original ID", async () => {
+  const calls = [];
+  const a = app({ mitasai_sheets_settings: settings }, async (_, __, sale) => { calls.push(sale.id); throw new Error("offline"); });
+  a.checkout();
+  await tick();
+  assert.equal(a.sales()[0].sheetsSync.status, "pending");
+  assert.equal(a.element("grand-total").textContent, "￥0");
+  const original = a.sales()[0].id;
+  const b = app(Object.fromEntries([...a.data].map(([key, value]) => [key, JSON.parse(value)])), async (_, __, sale) => { calls.push(sale.id); return { ok: true, saleId: sale.id }; });
+  await tick();
+  assert.equal(b.sales()[0].sheetsSync.status, "sent");
+  assert.deepEqual(calls, [original, original]);
+});
+
+test("switching targets does not reroute previous pending sales or backfill old sales", async () => {
+  const requests = [];
+  let fail = true;
+  const a = app({ mitasai_sheets_settings: settings, mitasai_sales: [{ id: "legacy" }] }, async (config, _, sale) => {
+    requests.push({ target: config.spreadsheetId, id: sale.id });
+    if (fail) throw new Error("offline");
+    return { ok: true, saleId: sale.id };
+  });
+  a.checkout(); await tick();
+  const first = a.sales()[1].id;
+  a.element("spreadsheet-url").value = "b".repeat(44);
+  a.save();
+  fail = false;
+  a.checkout(); await tick();
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].target, "b".repeat(44));
+  assert.equal(a.sales()[1].sheetsSync.status, "pending");
+  assert.equal(a.sales()[2].sheetsSync.status, "sent");
+  a.element("spreadsheet-url").value = settings.spreadsheetId;
+  a.save(); await tick();
+  assert.equal(requests[2].id, first);
+  assert.equal(requests[2].target, settings.spreadsheetId);
+  assert.equal(a.sales()[1].sheetsSync.status, "sent");
+});
+
+test("a failed local save keeps the cart and makes no network request", async () => {
+  let count = 0;
+  const a = app({ mitasai_sheets_settings: settings }, async () => { count++; });
+  a.setFailure(true);
+  a.checkout(); await tick();
+  assert.equal(a.sales().length, 0);
+  assert.equal(count, 0);
+  assert.match(a.element("status-message").textContent, /カートは保持/);
+  assert.equal(a.element("grand-total").textContent, "￥500");
+});
+
+test("disabled connections preserve local checkout and do not send", async () => {
+  let count = 0;
+  const a = app({ mitasai_sheets_settings: { ...settings, enabled: false } }, async () => { count++; });
+  a.checkout(); await tick();
+  assert.equal(a.sales().length, 1);
+  assert.equal(a.sales()[0].sheetsSync, undefined);
+  assert.equal(count, 0);
+});

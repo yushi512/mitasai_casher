@@ -3,6 +3,7 @@
     PRODUCTS: "mitasai_products",
     DISCOUNTS: "mitasai_discounts",
     SALES: "mitasai_sales",
+    SHEETS: "mitasai_sheets_settings",
   };
 
   const DEFAULT_PRODUCTS = [
@@ -26,6 +27,8 @@
     sales: [],
     cart: {},
     selectedDiscountId: null,
+    sheets: { enabled: false, spreadsheetId: "", endpoint: "", token: "" },
+    syncing: false,
   };
 
   const currency = new Intl.NumberFormat("ja-JP", {
@@ -61,6 +64,15 @@
     addProductForm: document.getElementById("add-product-form"),
     addDiscountForm: document.getElementById("add-discount-form"),
     manualExportButton: document.getElementById("manual-export-button"),
+    sheetsForm: document.getElementById("sheets-settings-form"),
+    sheetsEnabled: document.getElementById("sheets-enabled"),
+    spreadsheetUrl: document.getElementById("spreadsheet-url"),
+    sheetsEndpoint: document.getElementById("sheets-endpoint"),
+    sheetsToken: document.getElementById("sheets-token"),
+    sheetsStatus: document.getElementById("sheets-status"),
+    sheetsTest: document.getElementById("sheets-test-button"),
+    sheetsRetry: document.getElementById("sheets-retry-button"),
+    sheetsCurrentLink: document.getElementById("sheets-current-link"),
   };
 
   init();
@@ -70,9 +82,15 @@
     renderAll();
     attachEventListeners();
     setStatus("準備ができました。", "success");
+    renderSheetsSettings();
+    void syncPendingSales();
   }
 
   function attachEventListeners() {
+    els.sheetsForm.addEventListener("submit", saveSheetsSettings);
+    els.sheetsTest.addEventListener("click", testSheetsConnection);
+    els.sheetsRetry.addEventListener("click", () => { void syncPendingSales(); });
+    window.addEventListener("online", () => { void syncPendingSales(); });
     els.tabButtons.forEach((btn) => {
       btn.addEventListener("click", () => switchScreen(btn.dataset.target, btn));
     });
@@ -201,6 +219,11 @@
     );
     state.discounts = loadFromStorage(STORAGE_KEYS.DISCOUNTS, DEFAULT_DISCOUNTS);
     state.sales = loadFromStorage(STORAGE_KEYS.SALES, []);
+    const settings = loadFromStorage(STORAGE_KEYS.SHEETS, null);
+    if (settings) {
+      try { state.sheets = MitasaiSheets.normalizeSettings(settings); }
+      catch { /* Ignore an invalid saved connection without losing sales. */ }
+    }
     ensureDefaultDiscount();
     state.selectedDiscountId = state.discounts[0]?.id ?? null;
   }
@@ -450,7 +473,7 @@
     const totals = computeTotals(items);
     const timestamp = new Date().toISOString();
     const saleRecord = {
-      id: `sale-${Date.now()}`,
+      id: `sale-${crypto.randomUUID()}`,
       timestamp,
       items: items.map((item) => ({
         productId: item.id,
@@ -467,12 +490,119 @@
       totalQuantity: totals.totalQuantity,
     };
 
+    if (state.sheets.enabled) {
+      saleRecord.sheetsSync = {
+        spreadsheetId: state.sheets.spreadsheetId,
+        endpoint: state.sheets.endpoint,
+        status: "pending",
+      };
+    }
     state.sales.push(saleRecord);
-    persistSales();
+    try {
+      persistSales();
+    } catch {
+      state.sales.pop();
+      setStatus("端末に保存できませんでした。カートは保持しています。空き容量を確認してください。", "error");
+      return;
+    }
     state.cart = {};
     renderProducts();
     renderCartSummary();
     setStatus("会計データを保存しました。管理画面からエクスポートできます。", "success");
+    renderSheetsStatus();
+    void syncPendingSales();
+  }
+
+  function readSheetsForm() {
+    return MitasaiSheets.normalizeSettings({
+      enabled: els.sheetsEnabled.checked,
+      spreadsheetId: els.spreadsheetUrl.value,
+      endpoint: els.sheetsEndpoint.value,
+      token: els.sheetsToken.value,
+    });
+  }
+
+  function renderSheetsSettings() {
+    const settings = state.sheets;
+    els.sheetsEnabled.checked = settings.enabled;
+    els.spreadsheetUrl.value = settings.spreadsheetId
+      ? `https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}/edit` : "";
+    els.sheetsEndpoint.value = settings.endpoint;
+    els.sheetsToken.value = settings.token;
+    els.sheetsCurrentLink.hidden = !settings.spreadsheetId;
+    els.sheetsCurrentLink.href = settings.spreadsheetId
+      ? `https://docs.google.com/spreadsheets/d/${settings.spreadsheetId}/edit` : "";
+    renderSheetsStatus();
+  }
+
+  function renderSheetsStatus(message = "", error = false) {
+    const pending = state.sales.filter((sale) => sale.sheetsSync?.status === "pending");
+    const current = pending.filter((sale) => MitasaiSheets.matchesTarget(sale, state.sheets));
+    const mode = state.sheets.enabled ? "自動記録：有効" : "自動記録：停止中（会計は端末に保存）";
+    els.sheetsStatus.textContent = `${mode}。未送信：${current.length}件（別の記録先：${pending.length - current.length}件）。${message}`;
+    els.sheetsStatus.classList.toggle("status-error", error);
+    els.sheetsRetry.disabled = state.syncing || !current.length || !state.sheets.enabled;
+  }
+
+  function saveSheetsSettings(event) {
+    event.preventDefault();
+    if (state.syncing) return;
+    try {
+      // Turning off an existing or unconfigured connection must always be possible.
+      const settings = els.sheetsEnabled.checked ? readSheetsForm() : { ...state.sheets, enabled: false };
+      localStorage.setItem(STORAGE_KEYS.SHEETS, JSON.stringify(settings));
+      state.sheets = settings;
+      renderSheetsSettings();
+      renderSheetsStatus("設定を保存しました。");
+      void syncPendingSales();
+    } catch (error) {
+      renderSheetsStatus(error.message, true);
+    }
+  }
+
+  async function testSheetsConnection() {
+    els.sheetsTest.disabled = true;
+    try {
+      const settings = readSheetsForm();
+      renderSheetsStatus("接続を確認しています…");
+      const result = await MitasaiSheets.request(settings, "check");
+      renderSheetsStatus(`「${result.spreadsheetName}」に接続できました。記録先を保存すると反映されます。`);
+    } catch (error) {
+      renderSheetsStatus(`接続を確認できませんでした：${error.message}`, true);
+    } finally {
+      els.sheetsTest.disabled = false;
+    }
+  }
+
+  async function syncPendingSales() {
+    if (state.syncing || !state.sheets.enabled) return;
+    state.syncing = true;
+    const settings = { ...state.sheets };
+    // Freeze connection fields while a request is in flight; checkout remains available.
+    const fields = [...els.sheetsForm.querySelectorAll("input, button")];
+    fields.forEach((field) => { field.disabled = true; });
+    let failure = "";
+    try {
+      for (const sale of state.sales) {
+        if (sale.sheetsSync?.status !== "pending" || !MitasaiSheets.matchesTarget(sale, settings)) continue;
+        renderSheetsStatus("スプレッドシートに記録しています…");
+        await MitasaiSheets.request(settings, "append", {
+          id: sale.id, timestamp: sale.timestamp, items: sale.items,
+          subtotal: sale.subtotal, discountLabel: sale.discountLabel,
+          discountRate: sale.discountRate, discountAmount: sale.discountAmount,
+          total: sale.total, totalQuantity: sale.totalQuantity,
+        });
+        sale.sheetsSync.status = "sent";
+        try { persistSales(); }
+        catch (error) { sale.sheetsSync.status = "pending"; throw error; }
+      }
+    } catch (error) {
+      failure = `未送信分を端末に保持しています。接続設定や通信を確認し、再送してください：${error.message}`;
+    } finally {
+      state.syncing = false;
+      fields.forEach((field) => { field.disabled = false; });
+      renderSheetsStatus(failure, Boolean(failure));
+    }
   }
 
   function exportSalesToExcel() {
@@ -662,3 +792,4 @@
     }
   }
 })();
+
